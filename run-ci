@@ -1,0 +1,172 @@
+#!/bin/bash
+
+# wilder - Feb 3, 2020
+#
+# Script to run travis Ci against a cloned repo.
+# The TRBRANCH is used to save state of previous travis builds.
+# For example LASTHEAD should contain the hash of the last commit.
+# This is used to determin if a new builed is needed.
+# Todo:  Save results of previous build in TRBRANCH.
+# 
+
+# Git rep to run ci against, UPSTREAM is the project that REPO was cloned
+# from.
+REPO=git@github.com:djlwilder/OpenVswitch-continuous-integration.git
+UPSTREAM=git@github.com:openvswitch/ovs.git
+
+# TRBRANCH is used to save info about the ci runs.
+# For example the hash of the HEAD from the last run.
+# Any commits needed for Ci to run.
+TRBRANCH=PowerCI
+
+# Macros
+RDIR=$(echo $REPO |cut -d/ -f2- | cut -d. -f1)
+
+# Travis Auth
+RepoSlug=djlwilder%2F$RDIR
+
+# File to save the HASH of the HEAD from the last run.
+LASTHEAD=./.travis/lasthead
+
+# Globals
+Head=0
+LastHead=0
+RepoHasUpdated=0
+
+
+GetLasthead()
+{
+	pushd $RDIR
+
+	SBRANCH=$(git branch | grep "*" | cut -d" " -f2)
+	if [ "$SBRANCH" != "$TRBRANCH" ]; then
+		git checkout $TRBRANCH
+	fi
+
+	if [ -e $LASTHEAD ]; then
+		LastHead=$(cat $LASTHEAD)
+	fi
+
+	git checkout $SBRANCH
+	popd
+}
+
+SaveHead()
+{
+	pushd $RDIR
+	echo running SaveHead
+
+	SBRANCH=$(git branch | grep "*" | cut -d" " -f2)
+	if [ "$SBRANCH" != "$TRBRANCH" ]; then
+		git checkout $TRBRANCH;
+	fi
+
+	# Advoid making commits to the wrong branch
+	SBRANCH=$(git branch | grep "*" | cut -d" " -f2)
+        if [ "$SBRANCH" != "$TRBRANCH" ]; then
+                echo ERROR: Unable to checkout $TRBRANCH
+		exit 1 
+        fi
+
+	echo $Head > $LASTHEAD
+	git add $LASTHEAD
+	git commit -m "update $LASTHEAD"; [ $? == "1" ] && exit 1
+	git push origin $TRBRANCH; [ $? == "1" ] && exit 1
+
+	git checkout $SBRANCH
+	popd
+}
+
+GetHead()
+{
+	pushd $RDIR
+	Head=$(git rev-parse master)
+	if [ -z $Head ]; then
+		echo ERROR: Could not determin hash of HEAD~.
+		exit -1
+	fi
+	popd
+}
+
+
+CloneAndUpdate()
+{
+	git clone  $1 2> /dev/null
+
+	pushd $RDIR
+	# Always start with master.
+	git checkout master
+	git remote add upstream $UPSTREAM 2> /dev/null
+	git pull upstream master
+	git fetch
+	git fetch origin $TRBRANCH:$TRBRANCH
+	if [ "$?" != "0" ]; then
+		echo ERROR: Unable to checkout $TRBRANCH
+		exit 1
+	fi
+	popd
+
+	GetLasthead
+	GetHead
+	if [ $Head != $LastHead ]; then
+		RepoHasUpdated=1;
+	fi
+
+	# Force run the ci.
+	if [ ! -z $force ]; then
+		RepoHasUpdated=1;
+	fi
+}
+
+RunCi()
+{
+	echo ------------------------------
+	echo Ci will be run.
+	echo Current Head is: $Head
+	echo head at last ci run: $LastHead
+	echo -------------------------------
+
+body='{
+"request": {
+"branch":"master"
+}}'
+
+curl -s -X POST \
+   -H "Content-Type: application/json" \
+   -H "Accept: application/json" \
+   -H "Travis-API-Version: 3" \
+   -H "Authorization: token $Token" \
+   -d "$body" \
+   https://api.travis-ci.org/repo/$RepoSlug/requests
+}
+
+#
+# Main
+#
+
+# Get the travis token from the command line.
+Token=$1
+if [ -z $Token ]; then
+        echo -------------------------------
+        echo Usage: run-ci travis-token -f
+        echo -f  Force a run of the ci.
+        echo ------------------------------
+        exit 1
+fi
+
+# Use -f to force a travis build even if the head has
+# not changed from the last run.
+if [ "$1" == "-f" ]; then
+	force=1
+fi 
+
+CloneAndUpdate $REPO
+if [ $RepoHasUpdated -eq 1 ]; then
+	RunCi
+	SaveHead
+else
+	echo ---------------------------
+	echo No new commits to $UPSTREAM.
+	echo Travis will not be run.
+	echo ---------------------------
+fi
