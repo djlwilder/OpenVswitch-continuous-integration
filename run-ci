@@ -156,7 +156,7 @@ fi
 
 # Use -f to force a travis build even if the head has
 # not changed from the last run.
-if [ "$1" == "-f" ]; then
+if [ "$2" == "-f" ]; then
 	force=1
 fi 
 
