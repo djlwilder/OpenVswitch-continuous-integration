@@ -98,7 +98,7 @@ CloneAndUpdate()
 	git checkout master
 	git remote add upstream $UPSTREAM 2> /dev/null
 	git pull upstream master
-	git fetch
+	git push origin master
 	git fetch origin $TRBRANCH:$TRBRANCH
 	if [ "$?" != "0" ]; then
 		echo ERROR: Unable to checkout $TRBRANCH
