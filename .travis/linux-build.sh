@@ -6,7 +6,8 @@ set -x
 CFLAGS_FOR_OVS="-g -O2"
 SPARSE_FLAGS=""
 EXTRA_OPTS="--enable-Werror"
-TARGET="x86_64-native-linuxapp-gcc"
+TARGET="ppc_64-power8-linuxapp-gcc"
+
 
 function install_kernel()
 {
