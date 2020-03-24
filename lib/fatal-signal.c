@@ -187,7 +187,28 @@ send_backtrace_to_monitor(void) {
         dep++;
     }
 
-    ignore(write(daemonize_fd, unw_bt, dep * sizeof(struct unw_backtrace)));
+    if (monitor) {
+        ignore(write(daemonize_fd, unw_bt,
+                     dep * sizeof(struct unw_backtrace)));
+    } else {
+        /* Since there is no monitor daemon running, write backtrace
+         * in current process.  This is not asyn-signal-safe due to
+         * use of snprintf().
+         */
+        char str[] = "SIGSEGV detected, backtrace:\n";
+
+        vlog_direct_write_to_log_file_unsafe(str);
+
+        for (int i = 0; i < dep; i++) {
+            char line[64];
+
+            snprintf(line, 64, "0x%016"PRIxPTR" <%s+0x%"PRIxPTR">\n",
+                     unw_bt[i].ip,
+                     unw_bt[i].func,
+                     unw_bt[i].offset);
+            vlog_direct_write_to_log_file_unsafe(line);
+        }
+    }
 }
 #else
 static inline void
